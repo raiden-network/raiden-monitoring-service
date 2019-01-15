@@ -28,10 +28,10 @@ class BlockchainListenerStateHandler:
     def save_syncstate(self, blockchain_listener: 'BlockchainListener'):
         pass
 
-    def begin(self) -> None:  # TODO
+    def begin(self) -> None:
         pass
 
-    def commit(self, _) -> None:  # TODO
+    def commit(self) -> None:
         """ Gets called when a consistent state is reached """
         pass
 
@@ -285,7 +285,7 @@ class BlockchainListener(gevent.Greenlet):
 
         # work state is consistent -> commit
         self.state_handler.save_syncstate(self)
-        self.state_handler.commit(None)
+        self.state_handler.commit()
 
         if not self.wait_sync_event.is_set() and new_unconfirmed_head_number == current_block:
             self.wait_sync_event.set()

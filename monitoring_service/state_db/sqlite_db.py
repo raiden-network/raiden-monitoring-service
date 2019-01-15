@@ -208,6 +208,6 @@ class SqliteStateHandler(BlockchainListenerStateHandler):
         # self.conn.execute('BEGIN EXCLUSIVE')
         pass
 
-    def commit(self, _) -> None:  # TODO
+    def commit(self) -> None:  # TODO
         # self.conn.commit()
         pass
