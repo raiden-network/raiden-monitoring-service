@@ -51,7 +51,6 @@ def test_request_validation(
 def test_save_mr_from_transport(
     request_collector,
     get_monitor_request_for_same_channel,
-    state_db_sqlite,
 ):
     """Does the request collector save submitted MRs?"""
     monitor_request = get_monitor_request_for_same_channel(user=0)

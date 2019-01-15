@@ -1,5 +1,6 @@
-from .sqlite_db import StateDBSqlite
+from .sqlite_db import StateDBSqlite, SqliteStateHandler
 
 __all__ = [
     'StateDBSqlite',
+    'SqliteStateHandler',
 ]

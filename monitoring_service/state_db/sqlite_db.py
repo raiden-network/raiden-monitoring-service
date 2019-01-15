@@ -4,7 +4,7 @@ from typing import Dict, Iterable, Optional
 
 from eth_utils import is_checksum_address
 
-from monitoring_service.utils import BlockchainListener
+from monitoring_service.utils import BlockchainListener, BlockchainListenerStateHandler
 from raiden_contracts.constants import ChannelState
 from raiden_libs.messages import BalanceProof, MonitorRequest
 from raiden_libs.types import Address, ChannelIdentifier
@@ -26,15 +26,18 @@ sqlite3.register_converter('HEX_INT', convert_hex)
 class StateDBSqlite:
     def __init__(self, filename: str):
         self.filename = filename
-        self.conn = sqlite3.connect(
+        self.conn = self.get_conn()
+        os.chmod(filename, 0o600)
+
+    def get_conn(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(
             self.filename,
-            isolation_level="EXCLUSIVE",
             detect_types=sqlite3.PARSE_DECLTYPES,
         )
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA foreign_keys = ON")
-        if filename not in (None, ':memory:'):
-            os.chmod(filename, 0o600)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.isolation_level = None
+        return conn
 
     def setup_db(self, network_id: int, contract_address: str, receiver: str):
         """Initialize an empty database. Call this if `is_initialized()` returns False"""
@@ -149,6 +152,43 @@ class StateDBSqlite:
             [hex(channel_identifier)],
         ).fetchone()
 
+    def get_synced_contracts(self) -> Iterable[Address]:
+        return [
+            row['contract_address']
+            for row in self.conn.execute("SELECT contract_address FROM syncstate")
+        ]
+
+
+class SqliteStateHandler(BlockchainListenerStateHandler):
+
+    def __init__(self, conn: sqlite3.Connection, contract_address: Address):
+        self.conn = conn
+        self.contract_address = contract_address
+
+    def save_syncstate(self, blockchain_listener: BlockchainListener):
+        self.conn.execute("INSERT OR REPLACE INTO syncstate VALUES (?, ?, ?, ?, ?)", [
+            blockchain_listener.contract_address,
+            blockchain_listener.confirmed_head_number,
+            blockchain_listener.confirmed_head_hash,
+            blockchain_listener.unconfirmed_head_number,
+            blockchain_listener.unconfirmed_head_hash,
+        ])
+
+    def load_syncstate(self) -> Dict:
+        syncstate = self.conn.execute(
+            "SELECT * FROM syncstate WHERE contract_address = ?",
+            [self.contract_address],
+        ).fetchone()
+        if syncstate:
+            return syncstate
+        else:
+            return {
+                'confirmed_head_number': -1,
+                'unconfirmed_head_number': -1,
+                'confirmed_head_hash': None,
+                'unconfirmed_head_hash': None,
+            }
+
     def store_new_channel(
         self,
         channel_identifier: ChannelIdentifier,
@@ -164,23 +204,10 @@ class StateDBSqlite:
             ChannelState.OPENED,
         ])
 
-    def save_syncstate(self, blockchain_listener: BlockchainListener):
-        self.conn.execute("INSERT OR REPLACE INTO syncstate VALUES (?, ?, ?, ?, ?)", [
-            blockchain_listener.contract_address,
-            blockchain_listener.confirmed_head_number,
-            blockchain_listener.confirmed_head_hash,
-            blockchain_listener.unconfirmed_head_number,
-            blockchain_listener.unconfirmed_head_hash,
-        ])
+    def begin(self) -> None:  # TODO
+        # self.conn.execute('BEGIN EXCLUSIVE')
+        pass
 
-    def load_syncstate(self, contract_address: Address) -> Optional[Dict]:
-        return self.conn.execute(
-            "SELECT * FROM syncstate WHERE contract_address = ?",
-            [contract_address],
-        ).fetchone()
-
-    def get_synced_contracts(self) -> Iterable[Address]:
-        return [
-            row['contract_address']
-            for row in self.conn.execute("SELECT contract_address FROM syncstate")
-        ]
+    def commit(self, _) -> None:  # TODO
+        # self.conn.commit()
+        pass

@@ -1,6 +1,13 @@
-def test_state_db_sqlite(state_db_sqlite, get_random_monitor_request, get_random_address):
+
+
+def test_state_db_sqlite(
+    state_db_sqlite,
+    state_handler,
+    get_random_monitor_request,
+    get_random_address,
+):
     request = get_random_monitor_request()
-    state_db_sqlite.store_new_channel(
+    state_handler.store_new_channel(
         request.balance_proof.channel_identifier,
         request.balance_proof.token_network_address,
         request.balance_proof.signer,

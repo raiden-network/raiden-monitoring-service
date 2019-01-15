@@ -12,14 +12,14 @@ def get_monitor_request_for_same_channel(
         get_random_address,
         get_random_privkey,
         token_network,
-        state_db_sqlite,
+        state_handler,
 ):
     keys = [get_random_privkey() for i in range(3)]
     token_network_address = token_network.address
 
     channel_id = 1
     balance_hash_data = '0'
-    state_db_sqlite.store_new_channel(
+    state_handler.store_new_channel(
         channel_id,
         token_network_address,
         private_key_to_address(keys[0]),

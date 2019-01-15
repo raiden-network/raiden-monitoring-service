@@ -1,6 +1,7 @@
 import gevent
 import pytest
 
+from monitoring_service.state_db import SqliteStateHandler
 from monitoring_service.token_network_listener import TokenNetworkListener
 
 
@@ -11,6 +12,9 @@ def get_token_network_listener(
     token_network_registry_contract,
     state_db_sqlite,
 ):
+    def get_state_handler(contract_address):
+        return SqliteStateHandler(state_db_sqlite.get_conn(), contract_address)
+
     def get():
         return TokenNetworkListener(
             web3,
@@ -19,8 +23,7 @@ def get_token_network_listener(
             sync_start_block=0,
             required_confirmations=1,
             poll_interval=0.001,
-            load_syncstate=state_db_sqlite.load_syncstate,
-            save_syncstate=state_db_sqlite.save_syncstate,
+            get_state_handler=get_state_handler,
             get_synced_contracts=state_db_sqlite.get_synced_contracts,
         )
     return get

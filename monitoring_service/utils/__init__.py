@@ -7,12 +7,14 @@ from raiden_libs.utils import private_key_to_address
 from raiden_contracts.constants import CONTRACT_MONITORING_SERVICE, CONTRACT_RAIDEN_SERVICE_BUNDLE
 from raiden_contracts.contract_manager import ContractManager
 
-
-from .blockchain_listener import BlockchainListener, BlockchainMonitor
+from .blockchain_listener import (
+    BlockchainListener, BlockchainMonitor, BlockchainListenerStateHandler,
+)
 
 __all__ = [
     'BlockchainListener',
     'BlockchainMonitor',
+    'BlockchainListenerStateHandler',
 ]
 
 

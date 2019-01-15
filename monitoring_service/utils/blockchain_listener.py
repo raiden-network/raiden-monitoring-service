@@ -1,6 +1,6 @@
 import logging
 import sys
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Tuple, Union
 
 import gevent
 import gevent.event
@@ -13,10 +13,27 @@ from web3.utils.abi import filter_by_type
 
 from raiden_contracts.constants import CONTRACT_TOKEN_NETWORK_REGISTRY, EVENT_TOKEN_NETWORK_CREATED
 from raiden_contracts.contract_manager import ContractManager
-from raiden_libs.types import Address
 from raiden_libs.utils import decode_contract_call
 
 log = logging.getLogger(__name__)
+
+
+class BlockchainListenerStateHandler:
+    """ Persist BlockchainListener state between restarts
+    """
+
+    def load_syncstate(self) -> Dict:
+        pass
+
+    def save_syncstate(self, blockchain_listener: 'BlockchainListener'):
+        pass
+
+    def begin(self) -> None:  # TODO
+        pass
+
+    def commit(self, _) -> None:  # TODO
+        """ Gets called when a consistent state is reached """
+        pass
 
 
 def create_channel_event_topics() -> List:
@@ -88,6 +105,9 @@ def get_events(
     return web3.eth.getLogs(filter_params)
 
 
+default_state_handler = BlockchainListenerStateHandler()
+
+
 class BlockchainListener(gevent.Greenlet):
     """ A class listening for events on a given contract. """
 
@@ -102,8 +122,7 @@ class BlockchainListener(gevent.Greenlet):
             sync_chunk_size: int = 100_000,
             poll_interval: float = 15.0,
             sync_start_block: int = 0,
-            load_syncstate: Callable[[Address], Optional[Dict]] = lambda _: None,
-            save_syncstate: Callable[['BlockchainListener'], None] = lambda _: None,
+            state_handler: BlockchainListenerStateHandler = default_state_handler,
     ) -> None:
         """Creates a new BlockchainListener
 
@@ -127,7 +146,8 @@ class BlockchainListener(gevent.Greenlet):
 
         self.confirmed_callbacks: Dict[int, Tuple[List, Callable]] = {}
         self.unconfirmed_callbacks: Dict[int, Tuple[List, Callable]] = {}
-        self.chunk_callbacks: List[Callable] = [save_syncstate]
+        self.chunk_callbacks: List[Callable] = []
+        self.state_handler = state_handler
 
         self.wait_sync_event = gevent.event.Event()
         self.is_connected = gevent.event.Event()
@@ -135,7 +155,7 @@ class BlockchainListener(gevent.Greenlet):
         self.running = False
         self.poll_interval = poll_interval
 
-        syncstate = load_syncstate(contract_address)
+        syncstate = state_handler.load_syncstate()
         if syncstate:
             self.unconfirmed_head_number = syncstate['unconfirmed_head_number']
             self.confirmed_head_number = syncstate['confirmed_head_number']
@@ -212,6 +232,9 @@ class BlockchainListener(gevent.Greenlet):
                 self.unconfirmed_head_number >= new_unconfirmed_head_number):
             return
 
+        # state changes allowed after this
+        self.state_handler.begin()
+
         run_confirmed_filters = (
             self.confirmed_head_number < new_confirmed_head_number and
             len(self.confirmed_callbacks) > 0
@@ -269,9 +292,9 @@ class BlockchainListener(gevent.Greenlet):
         self.confirmed_head_number = new_confirmed_head_number
         self.confirmed_head_hash = new_confirmed_head_hash
 
-        # trigger callbacks after processing chunk
-        for callback in self.chunk_callbacks:
-            callback(self)
+        # work state is consistent -> commit
+        self.state_handler.save_syncstate(self)
+        self.state_handler.commit(None)
 
         if not self.wait_sync_event.is_set() and new_unconfirmed_head_number == current_block:
             self.wait_sync_event.set()

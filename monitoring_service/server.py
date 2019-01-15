@@ -8,7 +8,7 @@ from eth_utils import encode_hex, is_address, is_checksum_address, is_same_addre
 from web3 import Web3
 
 from monitoring_service.exceptions import ServiceNotRegistered, StateDBInvalid
-from monitoring_service.state_db import StateDBSqlite
+from monitoring_service.state_db import SqliteStateHandler, StateDBSqlite
 from monitoring_service.tasks import OnChannelClose, OnChannelSettle
 from monitoring_service.token_network_listener import TokenNetworkListener
 from monitoring_service.utils import is_service_registered
@@ -64,6 +64,14 @@ class MonitoringService(gevent.Greenlet):
             ),
         )
 
+        self.registry_state_handler = SqliteStateHandler(state_db.get_conn(), registry_address)
+
+        def get_state_handler(contract_address):
+            if contract_address == registry_address:
+                return self.registry_state_handler
+            else:
+                return SqliteStateHandler(state_db.get_conn(), contract_address)
+
         self.token_network_listener = TokenNetworkListener(
             web3,
             contract_manager,
@@ -71,8 +79,7 @@ class MonitoringService(gevent.Greenlet):
             sync_start_block,
             required_confirmations,
             poll_interval,
-            load_syncstate=state_db.load_syncstate,
-            save_syncstate=state_db.save_syncstate,
+            get_state_handler=get_state_handler,
             get_synced_contracts=state_db.get_synced_contracts,
         )
         self.token_network_listener.add_confirmed_channel_event_listener(
@@ -133,7 +140,7 @@ class MonitoringService(gevent.Greenlet):
 
     def on_channel_open(self, event: Dict, tx: Dict):
         log.info('on channel open: event=%s tx=%s' % (event, tx))
-        self.state_db.store_new_channel(
+        self.registry_state_handler.store_new_channel(
             channel_identifier=event['args']['channel_identifier'],
             token_network_address=event['address'],
             participant1=event['args']['participant1'],
