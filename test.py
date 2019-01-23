@@ -1,14 +1,19 @@
-import dataclasses
+from dataclasses import dataclass, field
 from pprint import pprint
 from typing import Optional, List
+from collections import deque
+
+from web3 import Web3
+
+from monitoring_service.utils.blockchain_listener import get_events
 
 
-@dataclasses.dataclass
+@dataclass
 class MonitorRequest:
     reward: int = 0
 
 
-@dataclasses.dataclass
+@dataclass
 class Channel:
     channel_identifier: int
     channel_state: int = 0
@@ -37,21 +42,62 @@ class DB:
     def __repr__(self):
         return '<DB [{}]>'.format(', '.join(str(e) for e in self.channels))
 
+
+@dataclass
+class BCListener:
+    """ This is pull-based instead of push-based."""
+
+    web3: Web3 = None
+
+    registry_address: str = ''
+    network_addresses: List[str] = field(default_factory=list)
+
+    def get_events(self, from_block, to_block) -> List:
+        # TODO: properly handle new token networks
+        result = []
+
+        events = get_events(
+            web3=self.web3,
+            contract_address=contract,
+            topics=topics,
+            from_block=from_block + 1,
+            to_block=to_block + 1,
+        )
+
+        for raw_event in events:
+            decoded_event = decode_event(
+                self.contract_manager.get_contract_abi(self.contract_name),
+                raw_event,
+            )
+            log.debug('Received confirmed event: \n%s', decoded_event)
+            result.append(decoded_event)
+
+        return result
+
+
+@dataclass
+class MSState:
+    db: DB
+    bcl: BCListener
+    latest_known_block: int = 0
+    event_queue: deque = deque()
+
+
 class Event:
     pass
 
 
-@dataclasses.dataclass
+@dataclass
 class BlockchainChannelOpenEvent(Event):
     channel_id: int
 
 
-@dataclasses.dataclass
+@dataclass
 class BlockchainChannelClosedEvent(Event):
     channel_id: int
 
 
-@dataclasses.dataclass
+@dataclass
 class OffchainMonitorRequest(Event):
     channel_id: int
     reward: int
@@ -62,61 +108,64 @@ class EventHandler:
         raise NotImplementedError
 
 
-@dataclasses.dataclass
+@dataclass
 class ChannelOpenEventHandler(EventHandler):
-    db: DB
+    state: MSState
 
     def handle_event(self, event: Event):
         if isinstance(event, BlockchainChannelOpenEvent):
-            self.db.store_channel(
+            self.state.db.store_channel(
                 Channel(event.channel_id)
             )
 
 
-@dataclasses.dataclass
+@dataclass
 class ChannelClosedEventHandler(EventHandler):
-    db: DB
+    state: MSState
 
     def handle_event(self, event: Event):
         if isinstance(event, BlockchainChannelClosedEvent):
-            channel = self.db.get_channel(event.channel_id)
+            channel = self.state.db.get_channel(event.channel_id)
 
             if channel and channel.on_chain_confirmation:
                 print('Trying to monitor channel: ', channel.channel_identifier)
                 channel.channel_state = 1
 
-                self.db.store_channel(channel)
+                self.state.db.store_channel(channel)
             else:
                 print('Closing channel not confirmed')
 
 
-@dataclasses.dataclass
+@dataclass
 class MonitorRequestEventHandler(EventHandler):
-    db: DB
+    state: MSState
 
     def handle_event(self, event: Event):
         if isinstance(event, OffchainMonitorRequest):
-            channel = self.db.get_channel(event.channel_id)
+            channel = self.state.db.get_channel(event.channel_id)
 
             request = MonitorRequest(reward=event.reward)
             if channel:
                 channel.monitor_request = request
 
-                self.db.store_channel(channel)
+                self.state.db.store_channel(channel)
             else:
                 # channel has not been confirmed on BC yet
+                # wait for PC confirmation
                 c = Channel(
                     event.channel_id,
                     on_chain_confirmation=False,
                     monitor_request=request
                 )
-                self.db.store_channel(c)
+                self.state.db.store_channel(c)
 
 
 db = DB()
-eh1 = ChannelOpenEventHandler(db)
-eh2 = MonitorRequestEventHandler(db)
-eh3 = ChannelClosedEventHandler(db)
+bcl = BCListener()
+s = MSState(db, bcl)
+eh1 = ChannelOpenEventHandler(s)
+eh2 = MonitorRequestEventHandler(s)
+eh3 = ChannelClosedEventHandler(s)
 
 e1 = BlockchainChannelOpenEvent(channel_id=1)
 e2 = OffchainMonitorRequest(channel_id=1, reward=5)
@@ -133,10 +182,26 @@ handlers = {
 
 events = [e1, e2, e3, e4, e5]
 
-pprint(db.channels)
-for event in events:
-    print('>---------------')
-    handler: EventHandler = handlers[type(event)]
+s.event_queue.extend(events)
 
-    handler.handle_event(event)
-    pprint(db.channels)
+def loop():
+    new_block = False
+    if new_block:
+        # events = s.bcl.get_events(s.latest_known_block, new_block)
+        # TODO: transform BC events to event machine events
+
+        s.event_queue.extend(events)
+        # TODO: append NewBlock event, that increases s.latest_known_block
+
+
+    # Process all events
+    while len(s.event_queue) > 0:
+        event = s.event_queue.pop()
+
+        print('>---------------')
+        handler: EventHandler = handlers[type(event)]
+        handler.handle_event(event)
+        pprint(db.channels)
+
+
+loop()
