@@ -1,6 +1,3 @@
 # Raiden Monitoring Service
-Repository for the Raiden monitoring service
 
-## Specification
-
-Read more details [here](http://raiden-network-specification.readthedocs.io/en/latest/monitoring_service.html)
+The development of the Raiden Monitoring Service has moved to the [Services repository](https://github.com/raiden-network/raiden-services).
